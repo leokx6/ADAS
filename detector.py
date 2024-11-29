@@ -1,19 +1,37 @@
-import torch
-from PIL import Image, ImageDraw
+import torch # type: ignore
+from PIL import Image, ImageDraw # type: ignore
 import random
-import math
-from scipy.interpolate import splev, splprep
-import numpy as np
-import cv2
+import cv2 # type: ignore
 import os
 import time
+import math
+import numpy as np # type: ignore
 
-def generate_binary_mask(img, save_mask_path, line_color=(0,255,255)):
+# Only for Windows user
+#import pathlib
+#temp = pathlib.PosixPath
+#pathlib.PosixPath = pathlib.WindowsPath
+
+
+def generate_binary_mask(img, save_mask_path):
+    CLASS_COLORS = {
+    0: (255, 0, 0),    # Rosso
+    2: (0, 0, 255),    # Blu
+    3: (255, 255, 0),  # Giallo
+    4: (255, 165, 0),  # Arancione
+    6: (0, 255, 255),  # Azzurro
+}
     img_array = np.array(img)
-    color_diff = np.abs(img_array - np.array(line_color))
-    mask = np.all(color_diff <= 0, axis=2).astype(np.uint8) * 255
-    mask_img = Image.fromarray(mask, mode="L")
+    mask_f = np.zeros(img_array.shape[:2], dtype=np.uint8)
+    for color in CLASS_COLORS.values():
+        img_array = np.array(img)
+        color_diff = np.abs(img_array - np.array(color))
+        mask = np.all(color_diff <= 0, axis=2).astype(np.uint8) * 255
+        if np.any(mask): mask_f = mask_f + mask
+    mask_img = Image.fromarray(mask_f, mode="L")
     mask_img.save(save_mask_path)
+
+
 
 def order_img(img_dir):
     imgs = []
@@ -190,15 +208,15 @@ def inference(model, imgs):
                 if len(connected) == len(boxes):
                     break
             # Polinomial interpolation of the points to draw a curve
-            npImg = np.array(img)
+            #npImg = np.array(img)
             color = CLASS_COLORS.get(class_id, (255, 255, 255))
             # Use Centripetal Catmull–Rom spline
-            tck, u = splprep(np.array(ordered_points).T, u=None, s=0.0, per=1)
-            u_new = np.linspace(u.min(), u.max(), 1000)
-            x_new, y_new = splev(u_new, tck, der=0)
-            ordered_points = np.column_stack((x_new, y_new)).tolist()
-            cv2.polylines(npImg, [np.array(ordered_points).astype(int)], isClosed=False, color=color, thickness=3)
-            img = Image.fromarray(npImg)
+            #tck, u = splprep(np.array(ordered_points).T, u=None, s=0.0, per=1)
+            #u_new = np.linspace(u.min(), u.max(), 1000)
+            #x_new, y_new = splev(u_new, tck, der=0)
+            #ordered_points = np.column_stack((x_new, y_new)).tolist()
+            #cv2.polylines(npImg, [np.array(ordered_points).astype(int)], isClosed=False, color=color, thickness=3)
+            #img = Image.fromarray(npImg)
         return img
 
     
@@ -266,7 +284,7 @@ def inference(model, imgs):
     #img_with_colored_boxes = draw_colored_points(img, mid_points, class_ids)
 
     img_with_colored_boxes = draw_colored_lines(img, points_classified, boxes_classified, graphs)
-    mask = generate_binary_mask(img_with_colored_boxes, "D:/Desktop/Adas_test/test.jpg")
+    mask = generate_binary_mask(img_with_colored_boxes, "test.jpg")
     end2 = time.time()
     print("Time for graph generation: ", end1 - start)
     print("Time for drawing lines: ", end2 - end1)
@@ -281,13 +299,13 @@ def inference(model, imgs):
     cv2.waitKey(0)
 
 # Model
-# model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+# model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
 
 # Load custom model
-model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolom.pt')
+model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolos.pt')
 
 # Cicla sulle immagini jpg nella cartella Dataset/amz/img
-img_dir = 'Dataset/ugr/img'
+img_dir = 'D:/Desktop/Adas_test/convert/ampera/images'
 imgs = order_img(img_dir)
 
 for img_name in imgs:
@@ -297,4 +315,3 @@ for img_name in imgs:
         inference(model, [img_path])
         end = time.time()
         print("Time for inference: ", end - start)
-
