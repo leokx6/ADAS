@@ -8,6 +8,12 @@ import cv2
 import os
 import time
 
+def generate_binary_mask(img, save_mask_path, line_color=(0,255,255)):
+    img_array = np.array(img)
+    color_diff = np.abs(img_array - np.array(line_color))
+    mask = np.all(color_diff <= 0, axis=2).astype(np.uint8) * 255
+    mask_img = Image.fromarray(mask, mode="L")
+    mask_img.save(save_mask_path)
 
 def order_img(img_dir):
     imgs = []
@@ -260,6 +266,7 @@ def inference(model, imgs):
     #img_with_colored_boxes = draw_colored_points(img, mid_points, class_ids)
 
     img_with_colored_boxes = draw_colored_lines(img, points_classified, boxes_classified, graphs)
+    mask = generate_binary_mask(img_with_colored_boxes, "D:/Desktop/Adas_test/test.jpg")
     end2 = time.time()
     print("Time for graph generation: ", end1 - start)
     print("Time for drawing lines: ", end2 - end1)
