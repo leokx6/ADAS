@@ -1,6 +1,7 @@
 import torch
 from PIL import Image, ImageDraw
 import random
+import math
 from scipy.interpolate import splev, splprep
 import numpy as np
 import cv2
@@ -35,6 +36,10 @@ def lowest_point(points):
     return lowest
 
 
+ 
+def getAngle(a, b, c):
+    ang = math.degrees(math.atan2(c[1]-b[1], c[0]-b[0]) - math.atan2(a[1]-b[1], a[0]-b[0]))
+    return ang + 360 if ang < 0 else ang
 
 
 def list_graphs(boxes, points, class_ids):
@@ -63,7 +68,6 @@ def graph_generator(boxes, points):
                 height1 = boxes[i][3] - boxes[i][1]
                 height2 = boxes[j][3] - boxes[j][1]
                 distance = (((points[i][0] - points[j][0]) ** 2 + (points[i][1] - points[j][1]) ** 3) ** 0.5 ) * (1 / height1 + 1 / height2)
-                #distance = distance_between_points(points[i], points[j], boxes)
                 graph.append((i, j, distance))
     graph.sort(key=lambda x: x[2])
     return graph
@@ -101,7 +105,7 @@ def inference(model, imgs):
             draw.ellipse((point[0] - 5, point[1] - 5, point[0] + 5, point[1] + 5), fill=color)
         return img
 
-    def isoutlier(boxes, i, j, x1, x2, y1, y2):
+    '''def isoutlier(boxes, i, j, x1, x2, y1, y2):
         box_area_i = (boxes[i][2] - boxes[i][0]) * (boxes[i][3] - boxes[i][1])
         box_area_j = (boxes[j][2] - boxes[j][0]) * (boxes[j][3] - boxes[j][1])
         print(box_area_i, box_area_j)
@@ -112,16 +116,16 @@ def inference(model, imgs):
         elif pixel_distance < 500:
             return False
         else:
+            return True'''
+
+    def isoutlier(x1, x2, x3, y1, y2, y3):
+        # Se l'angolo tra i due segmenti è maggiore di 90 gradi, ritorna True
+        angle = getAngle((x1, y1), (x2, y2), (x3, y3)) - 180
+        print("Angle: ", angle)
+        if abs(angle) > 160:
             return True
-
-    '''def isoutlier(x1, x2, x3, y1, y2, y3):
-        # Otteni l'angolo tra i punti 3 e 2 e tra i punti 2 e 1
-        angle = np.arctan2(y3 - y2, x3 - x2) - np.arctan2(y2 - y1, x2 - x1)
-        # Se l'angolo è maggiore di 90 gradi, ritorna True
-        print(np.abs(np.degrees(angle)))
-        return np.abs(np.degrees(angle)) < 30 or np.abs(np.degrees(angle)) > 330'''
-
-        
+        else:
+            return False
         
 
     def draw_colored_lines(img, points_classified, boxes_classified, graphs):
@@ -139,22 +143,20 @@ def inference(model, imgs):
             connected = [starting_index]
             current_index = starting_index
             last_index = starting_index
-            while True:
+            while len(connected) < len(boxes):
                 for i, j, distance in graph:
                     if i == current_index and j not in connected:
-                        x1, y1 = mid_points[i]
-                        x2, y2 = mid_points[j]
-                        x3, y3 = mid_points[last_index]
+                        x2, y2 = mid_points[i]
+                        x3, y3 = mid_points[j]
+                        x1, y1 = mid_points[last_index]
                         color = CLASS_COLORS.get(class_id, (255, 255, 255))
-                        if i == last_index or not isoutlier(boxes, i, j, x1, x2, y1, y2):
+                        if i == last_index or not isoutlier(x1, x2, x3, y1, y2, y3):
                             print("Drawing line between ", i, " and ", j)
                             draw.line([mid_points[i], mid_points[j]], fill=color, width=3)
                         connected.append(j)
                         current_index = j
                         last_index = i
                         break
-                if len(connected) == len(boxes):
-                    break
         return img
     
     def draw_colored_curves(img, points_classified, boxes_classified, graphs):
