@@ -1,8 +1,12 @@
 import torch
 from PIL import Image, ImageDraw
 import random
+from scipy.interpolate import splev, splprep
+import numpy as np
 import cv2
 import os
+import time
+
 
 def order_img(img_dir):
     imgs = []
@@ -21,6 +25,17 @@ def max_box(boxes):
             max_height = abs(y2 - y1)
             max_box = i
     return max_box
+
+
+def lowest_point(points):
+    lowest = 0
+    for i in range(len(points)):
+        if points[i][1] > points[lowest][1]:
+            lowest = i
+    return lowest
+
+
+
 
 def list_graphs(boxes, points, class_ids):
     graphs = []
@@ -47,14 +62,13 @@ def graph_generator(boxes, points):
             if i != j:
                 height1 = boxes[i][3] - boxes[i][1]
                 height2 = boxes[j][3] - boxes[j][1]
-                distance = (((points[i][0] - points[j][0]) ** 2 + (points[i][1] - points[j][1]) ** 4) ** 0.5 ) * (1 / height1 + 1 / height2)
+                distance = (((points[i][0] - points[j][0]) ** 2 + (points[i][1] - points[j][1]) ** 3) ** 0.5 ) * (1 / height1 + 1 / height2)
                 #distance = distance_between_points(points[i], points[j], boxes)
                 graph.append((i, j, distance))
     graph.sort(key=lambda x: x[2])
     return graph
 
 def inference(model, imgs):
-
     # Inference
     results = model(imgs)
 
@@ -86,7 +100,30 @@ def inference(model, imgs):
             color = CLASS_COLORS.get(cls_id, (255, 255, 255))  # Default: bianco se la classe non è nel dizionario
             draw.ellipse((point[0] - 5, point[1] - 5, point[0] + 5, point[1] + 5), fill=color)
         return img
-    
+
+    def isoutlier(boxes, i, j, x1, x2, y1, y2):
+        box_area_i = (boxes[i][2] - boxes[i][0]) * (boxes[i][3] - boxes[i][1])
+        box_area_j = (boxes[j][2] - boxes[j][0]) * (boxes[j][3] - boxes[j][1])
+        print(box_area_i, box_area_j)
+        pixel_distance = ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+        print(pixel_distance)
+        if pixel_distance > 500 and box_area_i > 3000 and box_area_j > 3000:
+            return False
+        elif pixel_distance < 500:
+            return False
+        else:
+            return True
+
+    '''def isoutlier(x1, x2, x3, y1, y2, y3):
+        # Otteni l'angolo tra i punti 3 e 2 e tra i punti 2 e 1
+        angle = np.arctan2(y3 - y2, x3 - x2) - np.arctan2(y2 - y1, x2 - x1)
+        # Se l'angolo è maggiore di 90 gradi, ritorna True
+        print(np.abs(np.degrees(angle)))
+        return np.abs(np.degrees(angle)) < 30 or np.abs(np.degrees(angle)) > 330'''
+
+        
+        
+
     def draw_colored_lines(img, points_classified, boxes_classified, graphs):
         draw = ImageDraw.Draw(img)
         for class_id in range(9):
@@ -95,41 +132,67 @@ def inference(model, imgs):
             if class_id != 2 and class_id != 6:
                 continue
             graph = graphs[class_id]
-            print(graph)
             boxes = boxes_classified[class_id]
             mid_points = points_classified[class_id]
-            # Prendi l'indice della box più alta per la classe corrente
-            starting_index = max_box(boxes)
+            # Prendi l'indice del punto più basso per la classe corrente
+            starting_index = lowest_point(mid_points)
             connected = [starting_index]
             current_index = starting_index
+            last_index = starting_index
             while True:
                 for i, j, distance in graph:
                     if i == current_index and j not in connected:
                         x1, y1 = mid_points[i]
                         x2, y2 = mid_points[j]
+                        x3, y3 = mid_points[last_index]
                         color = CLASS_COLORS.get(class_id, (255, 255, 255))
-                        draw.line([mid_points[i], mid_points[j]], fill=color, width=3)
+                        if i == last_index or not isoutlier(boxes, i, j, x1, x2, y1, y2):
+                            print("Drawing line between ", i, " and ", j)
+                            draw.line([mid_points[i], mid_points[j]], fill=color, width=3)
                         connected.append(j)
                         current_index = j
+                        last_index = i
                         break
-                # Leggi img con cv2
-                #img.save('output.jpg')
-                #img_cv = cv2.imread('output.jpg')
-                #resized = cv2.resize(img_cv, (800, 600), interpolation=cv2.INTER_AREA)
-                #cv2.imshow('Result', resized)
-                #cv2.waitKey(0)
                 if len(connected) == len(boxes):
                     break
         return img
     
-    '''def draw_colored_lines(img, boxes, mid_points, class_ids):
+    def draw_colored_curves(img, points_classified, boxes_classified, graphs):
         draw = ImageDraw.Draw(img)
-        for point, cls_id in zip(mid_points, class_ids):
-            color = CLASS_COLORS.get(cls_id, (255, 255, 255))
-            for point2, cls_id2 in zip(mid_points, class_ids):
-                if cls_id == cls_id2:
-                    draw.line([point, point2], fill=color, width=3)
-        return img'''
+        for class_id in range(9):
+            if len(boxes_classified[class_id]) == 0:
+                continue
+            if class_id != 2 and class_id != 6:
+                continue
+            graph = graphs[class_id]
+            boxes = boxes_classified[class_id]
+            mid_points = points_classified[class_id]
+            # Prendi l'indice della box più alta per la classe corrente
+            starting_index = lowest_point(mid_points)
+            connected = [starting_index]
+            ordered_points = [mid_points[starting_index]]
+            current_index = starting_index
+            while True:
+                for i, j, distance in graph:
+                    if i == current_index and j not in connected:
+                        ordered_points.append(mid_points[j])
+                        connected.append(j)
+                        current_index = j
+                        break
+                if len(connected) == len(boxes):
+                    break
+            # Polinomial interpolation of the points to draw a curve
+            npImg = np.array(img)
+            color = CLASS_COLORS.get(class_id, (255, 255, 255))
+            # Use Centripetal Catmull–Rom spline
+            tck, u = splprep(np.array(ordered_points).T, u=None, s=0.0, per=1)
+            u_new = np.linspace(u.min(), u.max(), 1000)
+            x_new, y_new = splev(u_new, tck, der=0)
+            ordered_points = np.column_stack((x_new, y_new)).tolist()
+            cv2.polylines(npImg, [np.array(ordered_points).astype(int)], isClosed=False, color=color, thickness=3)
+            img = Image.fromarray(npImg)
+        return img
+
     
     # Funzione per calcolare l'Intersection over Union (IoU) tra due bounding box
     def iou(box1, box2):
@@ -182,9 +245,10 @@ def inference(model, imgs):
         mid_points.append(((x1 + x2) / 2, y2))
 
     # genera lista di grafi dove in ogni grafo ci sono i punti medi e le distanze tra i punti di una classe
-    
+    #Misura tempo di esecuzione
+    start = time.time()
     graphs, boxes_classified, points_classified = list_graphs(boxes, mid_points, class_ids)
-    
+    end1 = time.time()
 
     img = Image.open(img_path)
 
@@ -194,6 +258,9 @@ def inference(model, imgs):
     #img_with_colored_boxes = draw_colored_points(img, mid_points, class_ids)
 
     img_with_colored_boxes = draw_colored_lines(img, points_classified, boxes_classified, graphs)
+    end2 = time.time()
+    print("Time for graph generation: ", end1 - start)
+    print("Time for drawing lines: ", end2 - end1)
 
     # Salva il risultato
     img_with_colored_boxes.save('output_colored_boxes_by_class.jpg')
@@ -217,5 +284,8 @@ imgs = order_img(img_dir)
 for img_name in imgs:
     if img_name.endswith('.jpg') or img_name.endswith('.png'):
         img_path = os.path.join(img_dir, img_name)
+        start = time.time()
         inference(model, [img_path])
+        end = time.time()
+        print("Time for inference: ", end - start)
 
