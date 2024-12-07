@@ -1,23 +1,62 @@
-import torch # type: ignore
-from PIL import Image, ImageDraw # type: ignore
-import random
-import cv2 # type: ignore
+import torch
+from PIL import Image, ImageDraw
+import cv2
 import os
 import time
 import math
-import numpy as np # type: ignore
+import numpy as np
 
 # Only for Windows user
 #import pathlib
 #temp = pathlib.PosixPath
 #pathlib.PosixPath = pathlib.WindowsPath
 
+# Costanti
+YELLOW_INDEX = 2
+BLUE_INDEX = 6
+CLASS_NUM = 9
+
 
 def generate_binary_mask(img, yellow_points, blue_points, mask_path):
-    #Inserisci all'inizio nei blue points il punto x = 0 e y max
-    blue_points.insert(0, (0, img.size[1]))
-    #Inserisci all'inizio nei yellow points il punto x = max e y max
-    yellow_points.insert(0, (img.size[0], img.size[1]))
+    if len(blue_points) == 0:
+        #Inserisci all'inizio nei blue points il punto x = 0 e y max
+        blue_points.insert(0, (0, img.size[1]))
+    elif len(blue_points) == 1:
+        # Inserisci il prolugamento sul punto in basso a sinistra
+        blue_points.insert(0, (0, img.size[1]))
+    else:
+        # Inserisci il prolugamento sul bordo della retta tra il primo e il secondo punto
+        x1, y1 = blue_points[0]
+        x2, y2 = blue_points[1]
+        m = (y2 - y1) / (x2 - x1)
+        q = y1 - m * x1
+        x = 0
+        y = m * x + q
+        # Se l'inclinazione della retta è positiva, inserisci il punto in basso a sinistra
+        if m > 0:
+            blue_points.insert(0, (0, img.size[1]))
+        else:
+            blue_points.insert(0, (x, y))
+            blue_points.insert(0, (0, img.size[1]))
+    if len(yellow_points) == 0:
+        #Inserisci all'inizio nei yellow points il punto x = max e y max
+        yellow_points.insert(0, (img.size[0], img.size[1]))
+    elif len(yellow_points) == 1:
+        yellow_points.insert(0, (img.size[0], img.size[1]))
+    else:
+        # Inserisci il prolugamento sul bordo della retta tra il primo e il secondo punto
+        x1, y1 = yellow_points[0]
+        x2, y2 = yellow_points[1]
+        m = (y2 - y1) / (x2 - x1)
+        q = y1 - m * x1
+        x = img.size[0]
+        y = m * x + q
+        # Se l'inclinazione della retta è negativa, inserisci il punto in basso a destra
+        if m < 0:
+            yellow_points.insert(0, (img.size[0], img.size[1]))
+        else:
+            yellow_points.insert(0, (x, y))
+            yellow_points.insert(0, (img.size[0], img.size[1]))
     img_array = np.array(img)
     mask_f = np.zeros(img_array.shape[:2], dtype=np.uint8)
     # Ensure both arrays have the same number of dimensions
@@ -35,8 +74,6 @@ def generate_binary_mask(img, yellow_points, blue_points, mask_path):
 
     return mask_f
     
-
-
 
 def order_img(img_dir):
     imgs = []
@@ -63,6 +100,49 @@ def lowest_point(points):
         if points[i][1] > points[lowest][1]:
             lowest = i
     return lowest
+
+def doesIntersect(p1, q1, p2, q2):
+    def onSegment(p, q, r):
+        if ( (q[0] <= max(p[0], r[0])) and (q[0] >= min(p[0], r[0])) and
+               (q[1] <= max(p[1], r[1])) and (q[1] >= min(p[1], r[1]))):
+            return True
+        return False
+
+    def orientation(p, q, r):
+        val = (float(q[1] - p[1]) * (r[0] - q[0])) - (float(q[0] - p[0]) * (r[1] - q[1]))
+        if (val > 0):
+            return 1
+        elif (val < 0):
+            return 2
+        else:
+            return 0
+
+    p1 = list(p1)
+    q1 = list(q1)
+    p2 = list(p2)
+    q2 = list(q2)
+
+    o1 = orientation(p1, q1, p2)
+    o2 = orientation(p1, q1, q2)
+    o3 = orientation(p2, q2, p1)
+    o4 = orientation(p2, q2, q1)
+
+    if ((o1 != o2) and (o3 != o4)):
+        return True
+
+    if ((o1 == 0) and onSegment(p1, p2, q1)):
+        return True
+
+    if ((o2 == 0) and onSegment(p1, q2, q1)):
+        return True
+
+    if ((o3 == 0) and onSegment(p2, p1, q2)):
+        return True
+
+    if ((o4 == 0) and onSegment(p2, q1, q2)):
+        return True
+
+    return False
 
 
  
@@ -152,9 +232,9 @@ def inference(model, imgs):
         angle = getAngle((x1, y1), (x2, y2), (x3, y3)) - 180
         angle = abs(angle) > 160
 
-        # Se la distanza tra i punti 2 e 3 è maggiore di 2 volte la distanza tra i punti 1 e 2, ritorna True
+        # Se la distanza tra i punti 2 e 3 è maggiore di 3 volte la distanza tra i punti 1 e 2, ritorna True
         distance = ((x2 - x3) ** 2 + (y2 - y3) ** 2) ** 0.5
-        distance = distance > 2 * (((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5)
+        distance = distance > 3 * (((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5)
         if angle or distance:
             return True
         else:
@@ -166,10 +246,10 @@ def inference(model, imgs):
         
         yellow_points = []
         blue_points = []
-        for class_id in range(9):
+        for class_id in range(CLASS_NUM):
             if len(boxes_classified[class_id]) == 0:
                 continue
-            if class_id != 2 and class_id != 6:
+            if class_id != YELLOW_INDEX and class_id != BLUE_INDEX:
                 continue
             graph = graphs[class_id]
             boxes = boxes_classified[class_id]
@@ -180,9 +260,9 @@ def inference(model, imgs):
             current_index = starting_index
             last_index = starting_index
             ended = False
-            if class_id == 2:
+            if class_id == YELLOW_INDEX:
                 yellow_points.append(mid_points[starting_index])
-            elif class_id == 6:
+            elif class_id == BLUE_INDEX:
                 blue_points.append(mid_points[starting_index])
             while len(connected) < len(boxes) and not ended:
                 for i, j, distance in graph:
@@ -192,10 +272,10 @@ def inference(model, imgs):
                         x1, y1 = mid_points[last_index]
                         color = CLASS_COLORS.get(class_id, (255, 255, 255))
                         if i == last_index or not isoutlier(x1, x2, x3, y1, y2, y3):
-                            draw.line([mid_points[i], mid_points[j]], fill=color, width=3)
-                            if class_id == 2:
+                            #draw.line([mid_points[i], mid_points[j]], fill=color, width=3)
+                            if class_id == YELLOW_INDEX:
                                 yellow_points.append(mid_points[j])
-                            elif class_id == 6:
+                            elif class_id == BLUE_INDEX:
                                 blue_points.append(mid_points[j])
                         else:
                             ended = True
@@ -204,16 +284,35 @@ def inference(model, imgs):
                         current_index = j
                         last_index = i
                         break
-        print(yellow_points)
-        print(blue_points)
+        # Controlla che i segmenti delle linee non si sovrappongano tra colori diversi
+        # Se si sovrappongono, rimuovi i punti più outlier
+        if len(yellow_points) > 1 and len(blue_points) > 1:
+            for i in range(1, len(yellow_points)):
+                if i - 1 < 0 or i >= len(yellow_points):
+                    break
+                x1, y1 = yellow_points[i - 1]
+                x2, y2 = yellow_points[i]
+                for j in range(1, len(blue_points)):
+                    if j - 1 < 0 or j >= len(blue_points):
+                        break
+                    x3, y3 = blue_points[j - 1]
+                    x4, y4 = blue_points[j]
+                    # Se i segmenti si incrociano, rimuovi i punti più outlier
+                    if doesIntersect((x1, y1), (x2, y2), (x3, y3), (x4, y4)):
+                        distance1 = ((x1 - x2) ** 2 + (y1 - y2) ** 3) ** 0.5
+                        distance2 = ((x3 - x4) ** 2 + (y3 - y4) ** 3) ** 0.5
+                        if distance1 > distance2:
+                            yellow_points = yellow_points[:i]
+                        else:
+                            blue_points = blue_points[:j]
         return img, (blue_points, yellow_points)
     
     def draw_colored_curves(img, points_classified, boxes_classified, graphs):
         draw = ImageDraw.Draw(img)
-        for class_id in range(9):
+        for class_id in range(CLASS_NUM):
             if len(boxes_classified[class_id]) == 0:
                 continue
-            if class_id != 2 and class_id != 6:
+            if class_id != YELLOW_INDEX and class_id != BLUE_INDEX:
                 continue
             graph = graphs[class_id]
             boxes = boxes_classified[class_id]
@@ -309,22 +408,32 @@ def inference(model, imgs):
     #img_with_colored_boxes = draw_colored_points(img, mid_points, class_ids)
 
     img_with_colored_boxes, (blue_points, yellow_points) = draw_colored_lines(img, points_classified, boxes_classified, graphs)
-    mask = generate_binary_mask(img, yellow_points, blue_points, "test.jpg")
+    mask = generate_binary_mask(img, yellow_points, blue_points, "mask.jpg")
+
+    # Somma la maschera binaria all'immagine originale con 0.5 di opacità
+    img_sum = Image.blend(img_with_colored_boxes, Image.fromarray(np.stack((mask,) * 3, axis=-1)), 0.2)
+
+    # Riarrangia i colori nell'imagine risultante, mettendo il valore del blu al posto del giallo
+    img_sum = np.array(img_sum)
+    img_sum = img_sum[:, :, [2, 1, 0]]
+    img_sum = Image.fromarray(img_sum)
+
     end2 = time.time()
     print("Time for graph generation: ", end1 - start)
     print("Time for drawing lines: ", end2 - end1)
 
     # Salva il risultato
-    img_with_colored_boxes.save('output_colored_boxes_by_class.jpg')
+    img_with_colored_boxes.save('output.jpg')
 
     # Visualizza il risultato con opencv
-    img_cv = cv2.imread('output_colored_boxes_by_class.jpg')
-    mask_cv = cv2.imread('test.jpg')
+    img_cv = cv2.imread('output.jpg')
+    mask_cv = cv2.imread('mask.jpg')
     resized = cv2.resize(img_cv, (800, 600), interpolation=cv2.INTER_AREA)
     resized_mask = cv2.resize(mask_cv, (800, 600), interpolation=cv2.INTER_AREA)
     cv2.imshow('Mask', resized_mask)
     cv2.imshow('Result', resized)
-    cv2.waitKey(0)
+    img_sum = np.array(cv2.resize(np.array(img_sum), (800, 600), interpolation=cv2.INTER_AREA))
+    cv2.imshow('Result with mask', img_sum)
 
 # Model
 # model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
@@ -334,12 +443,25 @@ model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolom.pt')
 
 # Cicla sulle immagini jpg nella cartella Dataset/amz/img
 img_dir = '/home/root/ADAS/Dataset/amz/img/'
+#img_dir = '/home/root/ADAS/frames_uniprrt/'
 imgs = order_img(img_dir)
 
-for img_name in imgs:
+i = 0
+while i < len(imgs):
+    img_name = imgs[i]
     if img_name.endswith('.jpg') or img_name.endswith('.png'):
         img_path = os.path.join(img_dir, img_name)
         start = time.time()
-        inference(model, [img_path])
+        inference(model, [img_path])        
         end = time.time()
-        print("Time for inference: ", end - start)
+
+        key = cv2.waitKey(0)
+        if key == ord('q'):
+            break
+        elif key == ord('n'):
+            i += 1
+        elif key == ord('p'):
+            if i > 0:
+                i -= 2
+        
+    print("Time for inference: ", end - start)
