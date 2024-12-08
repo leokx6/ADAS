@@ -58,6 +58,6 @@ def convert_segment_masks_to_yolo_seg(masks_dir, output_dir, classes):
 def main():
     mask_path = "D:/Desktop/Adas_test/ds_segmentation/masks/"
     txt_path = "D:/Desktop/Adas_test/ds_segmentation/txt_masks/"
-    convert_segment_masks_to_yolo_seg(mask_path, txt_path, classes=9)
+    convert_segment_masks_to_yolo_seg(mask_path, txt_path, classes=2)
 
 main()
