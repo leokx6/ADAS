@@ -181,7 +181,7 @@ def graph_generator(boxes, points):
     graph.sort(key=lambda x: x[2])
     return graph
 
-def inference(model, imgs):
+def inference(model, imgs, i):
     # Inference
     results = model(imgs)
 
@@ -410,6 +410,12 @@ def inference(model, imgs):
     img_with_colored_boxes, (blue_points, yellow_points) = draw_colored_lines(img, points_classified, boxes_classified, graphs)
     mask = generate_binary_mask(img, yellow_points, blue_points, "mask.jpg")
 
+    # For datasets generation
+    mask_path = "D:/Desktop/Adas_test/ds_segmentation/masks/mask" + str(i) + ".jpg"
+    img_path = "D:/Desktop/Adas_test/ds_segmentation/images/img" + str(i) + ".jpg"
+    ds_mask = generate_binary_mask(img, yellow_points, blue_points, mask_path)
+    img.save(img_path)
+
     # Somma la maschera binaria all'immagine originale con 0.5 di opacità
     img_sum = Image.blend(img_with_colored_boxes, Image.fromarray(np.stack((mask,) * 3, axis=-1)), 0.2)
 
@@ -435,33 +441,39 @@ def inference(model, imgs):
     img_sum = np.array(cv2.resize(np.array(img_sum), (800, 600), interpolation=cv2.INTER_AREA))
     cv2.imshow('Result with mask', img_sum)
 
-# Model
-# model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
 
-# Load custom model
-model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolom.pt')
 
-# Cicla sulle immagini jpg nella cartella Dataset/amz/img
-img_dir = '/home/root/ADAS/Dataset/amz/img/'
-#img_dir = '/home/root/ADAS/frames_uniprrt/'
-imgs = order_img(img_dir)
+def main():
+    # Model
+    # model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
 
-i = 0
-while i < len(imgs):
-    img_name = imgs[i]
-    if img_name.endswith('.jpg') or img_name.endswith('.png'):
-        img_path = os.path.join(img_dir, img_name)
-        start = time.time()
-        inference(model, [img_path])        
-        end = time.time()
+    # Load custom model
+    model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolos.pt')
 
-        key = cv2.waitKey(0)
-        if key == ord('q'):
-            break
-        elif key == ord('n'):
-            i += 1
-        elif key == ord('p'):
-            if i > 0:
-                i -= 2
-        
-    print("Time for inference: ", end - start)
+    # Cicla sulle immagini jpg nella cartella Dataset/amz/img
+    img_dir = 'D:/Desktop/Adas_test/convert/ampera/images'
+    #img_dir = '/home/root/ADAS/frames_uniprrt/'
+    imgs = order_img(img_dir)
+
+    i = 0
+    while i < len(imgs):
+        img_name = imgs[i]
+        if img_name.endswith('.jpg') or img_name.endswith('.png'):
+            img_path = os.path.join(img_dir, img_name)
+            start = time.time()
+            inference(model, [img_path], i)        
+            end = time.time()
+
+            key = cv2.waitKey(0)
+            if key == ord('q'):
+                break
+            elif key == ord('n'):
+                i += 1
+            elif key == ord('p'):
+                if i > 0:
+                    i -= 2
+            
+        print("Time for inference: ", end - start)
+
+
+main()
