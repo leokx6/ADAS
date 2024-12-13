@@ -1,4 +1,5 @@
 import torch
+from ultralytics import YOLO
 from PIL import Image, ImageDraw
 import cv2
 import os
@@ -12,9 +13,9 @@ import numpy as np
 #pathlib.PosixPath = pathlib.WindowsPath
 
 # Costanti
-YELLOW_INDEX = 2
-BLUE_INDEX = 6
-CLASS_NUM = 9
+YELLOW_INDEX = 4
+BLUE_INDEX = 0
+CLASS_NUM = 5
 
 
 def generate_binary_mask(img, yellow_points, blue_points, mask_path):
@@ -305,6 +306,33 @@ def inference(model, imgs, i):
                             yellow_points = yellow_points[:i]
                         else:
                             blue_points = blue_points[:j]
+
+        # Se il segmento tracciato tra il punto in basso a destra e il primo cono giallo incrocia un segmento blu, rimuovi tutti i punti gialli
+        if len(yellow_points) > 1 and len(blue_points) > 1:
+            # Punto in basso a destra nell'immagine
+            x1, y1 = (img.size[0], img.size[1])
+            x2, y2 = yellow_points[0]
+            for j in range(1, len(blue_points)):
+                if j - 1 < 0 or j >= len(blue_points):
+                    break
+                x3, y3 = blue_points[j - 1]
+                x4, y4 = blue_points[j]
+                if doesIntersect((x1, y1), (x2, y2), (x3, y3), (x4, y4)):
+                    yellow_points = []
+                    break
+        # Se il segmento tracciato tra il punto in basso a sinistra e il primo cono blu incrocia un segmento giallo, rimuovi tutti i punti blu
+        if len(yellow_points) > 1 and len(blue_points) > 1:
+            # Punto in basso a sinistra nell'immagine
+            x1, y1 = (0, img.size[1])
+            x2, y2 = blue_points[0]
+            for i in range(1, len(yellow_points)):
+                if i - 1 < 0 or i >= len(yellow_points):
+                    break
+                x1, y1 = yellow_points[i - 1]
+                x2, y2 = yellow_points[i]
+                if doesIntersect((x1, y1), (x2, y2), (x3, y3), (x4, y4)):
+                    blue_points = []
+                    break
         return img, (blue_points, yellow_points)
     
     def draw_colored_curves(img, points_classified, boxes_classified, graphs):
@@ -363,12 +391,14 @@ def inference(model, imgs, i):
     results = model(imgs)
 
     # Ottieni bounding box e classi
-    boxes = results.xyxy[0].cpu().numpy()  # Bounding box: [xmin, ymin, xmax, ymax, conf, cls]
-    class_ids = boxes[:, 5].astype(int)    # Indici di classe predetti
+    boxes = results[0].boxes.data.cpu().numpy()
+    boxes = boxes[:, :4]  # Bounding box: [xmin, ymin, xmax, ymax]
+    #boxes = results.xyxy[0].cpu().numpy()  # Bounding box: [xmin, ymin, xmax, ymax, conf, cls]
+    class_ids = results[0].boxes.data.cpu().numpy()[:, 5].astype(int)    # Indici di classe predetti
     img_path = imgs[0]
 
     # Leggi fiducia e classe predetta
-    confidences = boxes[:, 4]  # Fiducia
+    confidences = results[0].boxes.conf.cpu().numpy()
     # Se due boxes si sovrappongono per più del 60%, mantieni solo quella con fiducia maggiore
     for i in range(len(boxes)):
         for j in range(i + 1, len(boxes)):
@@ -378,15 +408,19 @@ def inference(model, imgs, i):
                 else:
                     boxes[i] = 0
     boxes = boxes[boxes[:, 0] != 0]
-    confidences = boxes[:, 4]
+    #confidences = boxes[:, 4]
 
     # Rimuovi bounding box con fiducia minore di 0.5
-    boxes = boxes[confidences > 0.5]
+    #boxes = boxes[confidences > 0.5]
 
+    #Rimuovi boxes più piccoli del 30% della box più grande
+    max_height = 0
+    for i in range(len(boxes)):
+        x1, y1, x2, y2 = boxes[i][:4]
+        if abs(y2 - y1) > max_height:
+            max_height = abs(y2 - y1)
 
-    # Rimuovi bounding box con area minore di 200 pixel
-    boxes = boxes[(boxes[:, 2] - boxes[:, 0]) * (boxes[:, 3] - boxes[:, 1]) > 200]
-
+    boxes = [box for box in boxes if abs(box[3] - box[1]) > 0.10 * max_height]
 
     # Trova punti medi sulla base delle coordinate dei bounding box
     mid_points = []
@@ -408,13 +442,12 @@ def inference(model, imgs, i):
     #img_with_colored_boxes = draw_colored_points(img, mid_points, class_ids)
 
     img_with_colored_boxes, (blue_points, yellow_points) = draw_colored_lines(img, points_classified, boxes_classified, graphs)
-    mask = generate_binary_mask(img, yellow_points, blue_points, "mask.jpg")
+    #mask = generate_binary_mask(img, yellow_points, blue_points, "mask.jpg")
 
     # For datasets generation
-    mask_path = "D:/Desktop/Adas_test/ds_segmentation/masks/mask" + str(i) + ".jpg"
-    img_path = "D:/Desktop/Adas_test/ds_segmentation/images/img" + str(i) + ".jpg"
-    ds_mask = generate_binary_mask(img, yellow_points, blue_points, mask_path)
-    img.save(img_path)
+    mask_path = "/home/root/ADAS/mask.jpg"
+    mask = generate_binary_mask(img, yellow_points, blue_points, mask_path)
+    #img.save(img_path)
 
     # Somma la maschera binaria all'immagine originale con 0.5 di opacità
     img_sum = Image.blend(img_with_colored_boxes, Image.fromarray(np.stack((mask,) * 3, axis=-1)), 0.2)
@@ -433,13 +466,14 @@ def inference(model, imgs, i):
 
     # Visualizza il risultato con opencv
     img_cv = cv2.imread('output.jpg')
-    mask_cv = cv2.imread('mask.jpg')
+    #mask_cv = cv2.imread('mask.jpg')
     resized = cv2.resize(img_cv, (800, 600), interpolation=cv2.INTER_AREA)
-    resized_mask = cv2.resize(mask_cv, (800, 600), interpolation=cv2.INTER_AREA)
-    cv2.imshow('Mask', resized_mask)
+    #resized_mask = cv2.resize(mask_cv, (800, 600), interpolation=cv2.INTER_AREA)
+    #cv2.imshow('Mask', resized_mask)
     cv2.imshow('Result', resized)
     img_sum = np.array(cv2.resize(np.array(img_sum), (800, 600), interpolation=cv2.INTER_AREA))
     cv2.imshow('Result with mask', img_sum)
+    return img, mask
 
 
 
@@ -448,30 +482,46 @@ def main():
     # model = torch.hub.load('ultralytics/yolov5', 'yolov5m', pretrained=True)
 
     # Load custom model
-    model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolos.pt')
-
+    #model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolom.pt')
+    model = YOLO("best.pt")
     # Cicla sulle immagini jpg nella cartella Dataset/amz/img
-    img_dir = 'D:/Desktop/Adas_test/convert/ampera/images'
-    #img_dir = '/home/root/ADAS/frames_uniprrt/'
+    img_dir = '/home/root/ADAS/Dataset/amz/img/'
+    #img_dir = '/home/root/ADAS/frames_uniprrt'
+    
     imgs = order_img(img_dir)
 
-    i = 0
-    while i < len(imgs):
+    # Crop each image to the region of interest that is in 140 px from each side
+    for img_name in imgs:
+        if img_name.endswith('.jpg') or img_name.endswith('.png'):
+            img_path = os.path.join(img_dir, img_name)
+            img = Image.open(img_path)
+            img = img.crop((140, 140, img.size[0] - 140, img.size[1] - 140))
+            img.save("/home/root/ADAS/test/" + img_name)
+    img_dir = "/home/root/ADAS/test"
+    i = 1000
+    while i < len(imgs) + 1000:
         img_name = imgs[i]
         if img_name.endswith('.jpg') or img_name.endswith('.png'):
             img_path = os.path.join(img_dir, img_name)
             start = time.time()
-            inference(model, [img_path], i)        
+            img, mask = inference(model, [img_path], i)        
             end = time.time()
 
             key = cv2.waitKey(0)
+            if key == ord('s'):
+                mask_path = "/home/root/ADAS/saved_images/masks/img" + str(i) + ".jpg"
+                img_path = "/home/root/ADAS/saved_images/images/img" + str(i) + ".jpg"
+                img.save(img_path)
+                mask = Image.fromarray(mask)
+                mask.save(mask_path)
+                i += 1
             if key == ord('q'):
                 break
             elif key == ord('n'):
                 i += 1
             elif key == ord('p'):
                 if i > 0:
-                    i -= 2
+                    i -= 1
             
         print("Time for inference: ", end - start)
 
