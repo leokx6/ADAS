@@ -1,7 +1,5 @@
-```
 torch
 ultralytics
 Pillow
 opencv-python
 numpy
-```
