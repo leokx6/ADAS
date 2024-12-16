@@ -328,11 +328,12 @@ def inference(model, imgs, i):
             for i in range(1, len(yellow_points)):
                 if i - 1 < 0 or i >= len(yellow_points):
                     break
-                x1, y1 = yellow_points[i - 1]
-                x2, y2 = yellow_points[i]
+                x3, y3 = yellow_points[i - 1]
+                x4, y4 = yellow_points[i]
                 if doesIntersect((x1, y1), (x2, y2), (x3, y3), (x4, y4)):
                     blue_points = []
                     break
+
         return img, (blue_points, yellow_points)
     
     def draw_colored_curves(img, points_classified, boxes_classified, graphs):
@@ -476,6 +477,26 @@ def inference(model, imgs, i):
     return img, mask
 
 
+def seg_inference(model, imgs):
+    img = Image.open(imgs[0])
+    results = model(imgs)
+    # Draw the masks
+    if (results[0].masks is None):
+        return
+    for mask in results[0].masks.xy:
+        points = np.int32([mask])
+        segmented = cv2.fillPoly(np.array(img), points, (255, 255, 255))
+
+    img_sum = Image.blend(img, Image.fromarray(segmented), 0.2)
+    img_sum = np.array(img_sum)
+    img_sum = np.array(img_sum)[:, :, [0, 1, 2]]
+    img_sum = Image.fromarray(img_sum)
+
+    img_sum.save('segmented.jpg')
+    img_cv = cv2.imread('segmented.jpg')
+    resized = cv2.resize(img_cv, (800, 600), interpolation=cv2.INTER_AREA)
+    cv2.imshow('Segmentation', resized)
+
 
 def main():
     # Model
@@ -483,29 +504,33 @@ def main():
 
     # Load custom model
     #model = torch.hub.load('ultralytics/yolov5', 'custom', path='yolom.pt')
-    model = YOLO("best.pt")
+    model = YOLO("unipr-detect.pt")
+    seg_model = YOLO("yolo-segment.pt")
     # Cicla sulle immagini jpg nella cartella Dataset/amz/img
     img_dir = '/home/root/ADAS/Dataset/amz/img/'
+    CROP = True
     #img_dir = '/home/root/ADAS/frames_uniprrt'
     
     imgs = order_img(img_dir)
 
     # Crop each image to the region of interest that is in 140 px from each side
-    for img_name in imgs:
-        if img_name.endswith('.jpg') or img_name.endswith('.png'):
-            img_path = os.path.join(img_dir, img_name)
-            img = Image.open(img_path)
-            img = img.crop((140, 140, img.size[0] - 140, img.size[1] - 140))
-            img.save("/home/root/ADAS/test/" + img_name)
-    img_dir = "/home/root/ADAS/test"
+    if CROP:
+        for img_name in imgs:
+            if img_name.endswith('.jpg') or img_name.endswith('.png'):
+                img_path = os.path.join(img_dir, img_name)
+                img = Image.open(img_path)
+                img = img.crop((140, 140, img.size[0] - 140, img.size[1] - 140))
+                img.save("/home/root/ADAS/test/" + img_name)
+        img_dir = "/home/root/ADAS/test"
     i = 1000
-    while i < len(imgs) + 1000:
-        img_name = imgs[i]
+    while i - 1000 < len(imgs):
+        img_name = imgs[i - 1000]
         if img_name.endswith('.jpg') or img_name.endswith('.png'):
             img_path = os.path.join(img_dir, img_name)
             start = time.time()
             img, mask = inference(model, [img_path], i)        
             end = time.time()
+            seg_inference(seg_model, [img_path])
 
             key = cv2.waitKey(0)
             if key == ord('s'):
