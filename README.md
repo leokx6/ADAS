@@ -1,24 +1,27 @@
 # From Cones Detection to Road Segmentation
 
-## Descrizione
-Questo progetto utilizza diversi pacchetti Python per gestire modelli YOLO, elaborare immagini e video, e applicare tecniche di analisi e disegno su immagini. Di seguito trovi le istruzioni per configurare l'ambiente necessario.
+## Description
 
-## Requisiti di Sistema
-Assicurati di avere installato:
+This project uses various Python packages to manage YOLO models, process images and videos, and apply analysis and drawing techniques to images. Below are the instructions for setting up the required environment.
 
-- Python 3.8 o superiore
-- pip (gestore di pacchetti Python)
+## System Requirements
 
-## Installazione dei Requisiti
+Make sure you have installed:
 
-Per eseguire questo progetto, installa le seguenti dipendenze Python elencate in `requirements.txt` utilizzando il comando:
+    - Python 3.8 or higher
+    - pip (Python package manager)
+
+## Installing Requirements
+
+To run this project, install the Python dependencies listed in requirements.txt using the following command:
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### Contenuto del file `requirements.txt`
-Ecco le librerie richieste per il progetto:
+### Contents of "requirements.txt"
+
+Here are the libraries required for the project:
 
 ```
 torch
