@@ -1,4 +1,4 @@
-# Project Name
+# From Cones Detection to Road Segmentation
 
 ## Descrizione
 Questo progetto utilizza diversi pacchetti Python per gestire modelli YOLO, elaborare immagini e video, e applicare tecniche di analisi e disegno su immagini. Di seguito trovi le istruzioni per configurare l'ambiente necessario.
